@@ -1,17 +1,20 @@
 #include <stdio.h>
 #include <unistd.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 char buffer[1500];
-char* reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* filename, unsigned long long int bytesToTransfer){
+void writeFile(char* filename, char *content){
     int fd, size;
-	fd = open(filename, O_RDONLY);
-	size = read(fd, buffer, bytesToTransfer);
+	fd = open(filename, O_RDWR|O_APPEND);
+	write(fd, content, strlen(content));
 	close(fd);
-    return buffer;
 }
 
 int main(){
-	printf("%s", reliablyTransfer("xxx", 100, "file", 200));
+	char file[1024];
+	file[0] = 'y';
+	file[1] = '\0';
+	writeFile("file", file);
 }

@@ -37,7 +37,7 @@ int main(int argc, char** argv)
     reliablyTransfer(argv[1], udpPort, argv[3], numBytes);
 } 
 
-char* readFile(char* filename, unsigned long long int bytesToTransfer){
+char* readFile(char* filename, unsigned long long int bytesToTransfer) {
     int fd, size;
     fd = open(filename, O_RDONLY);
     size = read(fd, buffer, bytesToTransfer);
@@ -45,12 +45,12 @@ char* readFile(char* filename, unsigned long long int bytesToTransfer){
     return g_file_buffer;
 }
 
-void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* filename, unsigned long long int bytesToTransfer){
+void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* filename, unsigned long long int bytesToTransfer) {
     int sockfd;
     struct addrinfo hints, *servinfo, *p;
     int rv;
     int numbytes;
-    char file[MAXBUFF];
+    char* file;
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
@@ -65,26 +65,27 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
     for(p = servinfo; p != NULL; p = p->ai_next) {
         if ((sockfd = socket(p->ai_family, p->ai_socktype,
                 p->ai_protocol)) == -1) {
-            perror("talker: socket");
+            perror("sender: socket");
             continue;
         }
         break;
     }
 
     if (p == NULL) {
-        fprintf(stderr, "talker: failed to bind socket\n");
+        fprintf(stderr, "sender: failed to bind socket\n");
         return 2;
     }
 
+    file = readFile(filename, bytesToTransfer);
+
     if ((numbytes = sendto(sockfd, argv[2], strlen(argv[2]), 0,
              p->ai_addr, p->ai_addrlen)) == -1) {
-        perror("talker: sendto");
+        perror("sender: sendto");
         exit(1);
     }
 
     freeaddrinfo(servinfo);
-
-    printf("talker: sent %d bytes to %s\n", numbytes, argv[1]);
+    
     close(sockfd);
 
     return 0;
