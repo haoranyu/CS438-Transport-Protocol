@@ -17,3 +17,7 @@ int main(int argc, char** argv)
     
     reliablyReceive(udpPort, argv[2]);
 }
+
+void reliablyReceive(unsigned short int myUDPport, char* destinationFile){
+	
+}

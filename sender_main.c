@@ -19,3 +19,8 @@ int main(int argc, char** argv)
     
     reliablyTransfer(argv[1], udpPort, argv[3], numBytes);
 } 
+
+
+void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* filename, unsigned long long int bytesToTransfer){
+    
+}
