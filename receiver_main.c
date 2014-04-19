@@ -5,11 +5,15 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-#define MAXBUFF 1500
+#include <fcntl.h>
 
+#define MAXBUFF 1048576
+
+char    g_file_buffer[MAXBUFF];
 
 void 	reliablyReceive(unsigned short int myUDPport, char* destinationFile);
 void   	writeFile(char* filename, char *content);
@@ -40,7 +44,7 @@ void *get_in_addr(struct sockaddr *sa) {
 
 void writeFile(char* filename, char *content){
     int fd, size;
-	fd = open(filename, O_RDWR|O_APPEND);
+	fd = open(filename, O_RDWR|O_CREAT|O_APPEND);
 	write(fd, content, strlen(content));
 	close(fd);
 }
@@ -54,13 +58,15 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile){
 	char file[MAXBUFF];
 	socklen_t addr_len;
 	char s[INET6_ADDRSTRLEN];
+	char *port;
 
 	memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_UNSPEC; // set to AF_INET to force IPv4
 	hints.ai_socktype = SOCK_DGRAM;
 	hints.ai_flags = AI_PASSIVE; // use my IP
+	sprintf(port, "%d", myUDPport);
 
-	if ((rv = getaddrinfo(NULL, myUDPport, &hints, &servinfo)) != 0) {
+	if ((rv = getaddrinfo(NULL, port, &hints, &servinfo)) != 0) {
 		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
 		return 1;
 	}
@@ -86,7 +92,7 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile){
 		fprintf(stderr, "receiver: failed to bind socket\n");
 		return 2;
 	}
-
+printf("YE\n");
 	freeaddrinfo(servinfo);
 
 	addr_len = sizeof their_addr;
@@ -94,7 +100,7 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile){
 		perror("recvfrom");
 		exit(1);
 	}
-
+printf("%s\n", file);
 	file[numbytes] = '\0';
 	writeFile(destinationFile, file);
 

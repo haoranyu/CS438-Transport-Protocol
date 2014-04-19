@@ -11,10 +11,9 @@
 #include <netdb.h>
 #include <fcntl.h>
 
-#define MAXBUFF 1500
+#define MAXBUFF 1048576
 
 char    g_file_buffer[MAXBUFF];
-
 
 void    reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* filename, unsigned long long int bytesToTransfer);
 char*   readFile(char* filename, unsigned long long int bytesToTransfer);
@@ -40,7 +39,7 @@ int main(int argc, char** argv)
 char* readFile(char* filename, unsigned long long int bytesToTransfer) {
     int fd, size;
     fd = open(filename, O_RDONLY);
-    size = read(fd, buffer, bytesToTransfer);
+    size = read(fd, g_file_buffer, bytesToTransfer);
     close(fd);
     return g_file_buffer;
 }
@@ -51,12 +50,14 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
     int rv;
     int numbytes;
     char* file;
+    char* port;
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_DGRAM;
+    sprintf(port, "%d", hostUDPport);
 
-    if ((rv = getaddrinfo(hostname, hostUDPport, &hints, &servinfo)) != 0) {
+    if ((rv = getaddrinfo(hostname, port, &hints, &servinfo)) != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
         return 1;
     }
@@ -78,7 +79,7 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
 
     file = readFile(filename, bytesToTransfer);
 
-    if ((numbytes = sendto(sockfd, argv[2], strlen(argv[2]), 0,
+    if ((numbytes = sendto(sockfd, file, bytesToTransfer, 0,
              p->ai_addr, p->ai_addrlen)) == -1) {
         perror("sender: sendto");
         exit(1);
