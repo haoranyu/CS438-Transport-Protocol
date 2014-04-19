@@ -14,6 +14,7 @@
 void 	reliablyReceive(unsigned short int myUDPport, char* destinationFile);
 void   	writeFile(char* filename, char *content);
 void*	get_in_addr(struct sockaddr *sa);
+
 int main(int argc, char** argv)
 {
     unsigned short int udpPort;
