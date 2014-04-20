@@ -12,6 +12,16 @@
 #include <fcntl.h>
 
 #define MAXBUFF 1048576
+#define PACKSIZE 1400
+
+typedef struct packet_struct{
+    char msg[PACKSIZE];
+    int seqnum;
+} packet;
+
+typedef struct ack_struct{
+    int seqnum;
+} ack;
 
 char    g_file_buffer[MAXBUFF];
 
