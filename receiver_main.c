@@ -23,7 +23,7 @@ typedef struct ack_struct{
 	int seqnum;
 } ack;
 
-char    g_file_buffer[MAXBUFF];
+char*   g_file_buffer;
 
 void 	reliablyReceive(unsigned short int myUDPport, char* destinationFile);
 void   	writeFile(char* filename, char *content);
