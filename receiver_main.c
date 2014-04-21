@@ -26,7 +26,7 @@ typedef struct ack_struct{
 char*   g_file_buffer;
 
 void 	reliablyReceive(unsigned short int myUDPport, char* destinationFile);
-void   	writeFile(char* filename, char *content);
+void    writeFile(char* filename, char *content, long content_len);
 void*	get_in_addr(struct sockaddr *sa);
 
 int main(int argc, char** argv)
@@ -52,11 +52,25 @@ void *get_in_addr(struct sockaddr *sa) {
 	return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-void writeFile(char* filename, char *content){
+void cleanFile(char* filename){
     int fd, size;
-	fd = open(filename, O_RDWR|O_CREAT|O_APPEND);
-	write(fd, content, strlen(content));
+	fd = open(filename, O_RDWR|O_CREAT);
+	write(fd, "", 0);
 	close(fd);
+}
+
+void writeFile(char* filename, char *content, long content_len){
+    FILE * fp;
+	char c;
+	int i;
+	fp = fopen (filename,"wb");
+	
+	for(i = 0; i < content_len; i++){
+		c = content[i];
+		fputc(c, fp);
+	}
+	
+	fclose (fp);
 }
 
 void reliablyReceive(unsigned short int myUDPport, char* destinationFile){
@@ -110,9 +124,9 @@ printf("YE\n");
 		perror("recvfrom");
 		exit(1);
 	}
-printf("%s\n", file);
+printf("%d\n", numbytes);
 	file[numbytes] = '\0';
-	writeFile(destinationFile, file);
+	writeFile(destinationFile, file, numbytes);
 
 	close(sockfd);
 	return 0;

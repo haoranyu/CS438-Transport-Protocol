@@ -48,20 +48,35 @@ int main(int argc, char** argv)
 } 
 
 void readFile(char* filename, unsigned long long int bytesToTransfer) {
-    int fd, size;
-    fd = open(filename, O_RDONLY);
-    size = read(fd, g_file_buffer, bytesToTransfer);
-    close(fd);
+    // printf("YE\n");
+    FILE *fp;
+    fp = fopen(filename,"rb");
+    long filesize;
+    fseek(fp, 0L, SEEK_END);
+    // printf("YE\n");
+    filesize = ftell(fp);
+    fseek(fp, 0L, SEEK_SET);
+    // printf("YE\n");
+    int i=0;
+    g_file_buffer = (char *)malloc(sizeof(char)*(filesize+1));
+    char c;
+    for(i = 0; i < bytesToTransfer; i++)
+    {   
+        c = fgetc(fp);
+        g_file_buffer[i]=c;
+    }
+    g_file_buffer[i]='\0';
+    fclose (fp);
 }
 
 void splitFile(unsigned long long int bytesToTransfer) {
     int i = 0;
-    //比最大限制大的传输量
+
     for(i = 0; bytesToTransfer > PACKSIZE; i++){
         strcpy(g_packets[i], g_file_buffer);
         bytesToTransfer -= PACKSIZE;
     }
-    //比最大量小或最后一个剩余量
+
     strcpy(g_packets[i], g_file_buffer);
     g_packets[i][bytesToTransfer] = EOF;
 }
@@ -71,7 +86,6 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
     struct addrinfo hints, *servinfo, *p;
     int rv;
     int numbytes;
-    char* file;
     char* port;
 
     memset(&hints, 0, sizeof hints);
@@ -102,7 +116,7 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
     readFile(filename, bytesToTransfer);
     splitFile(bytesToTransfer);
 
-    if ((numbytes = sendto(sockfd, file, bytesToTransfer, 0,
+    if ((numbytes = sendto(sockfd, g_file_buffer, bytesToTransfer, 0,
              p->ai_addr, p->ai_addrlen)) == -1) {
         perror("sender: sendto");
         exit(1);
