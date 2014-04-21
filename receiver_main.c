@@ -11,7 +11,7 @@
 #include <netdb.h>
 #include <fcntl.h>
 
-#define MAXBUFF 1048576
+#define MAXBUFF 50000
 #define PACKSIZE 1400
 
 typedef struct packet_struct{
@@ -23,10 +23,11 @@ typedef struct ack_struct{
 	int seqnum;
 } ack;
 
-char*   g_file_buffer;
+int     g_packets_num = 0;
+int     g_packets_lastsize = 0;
+char    g_packets[MAXBUFF][PACKSIZE];
 
 void 	reliablyReceive(unsigned short int myUDPport, char* destinationFile);
-void    writeFile(char* filename, char *content, long content_len);
 void*	get_in_addr(struct sockaddr *sa);
 
 int main(int argc, char** argv)
@@ -59,18 +60,35 @@ void cleanFile(char* filename){
 	close(fd);
 }
 
-void writeFile(char* filename, char *content, long content_len){
+void writeFile(char* filename){
     FILE * fp;
 	char c;
-	int i;
+	int i, j;
 	fp = fopen (filename,"wb");
-	
-	for(i = 0; i < content_len; i++){
-		c = content[i];
-		fputc(c, fp);
+	fseek(fp, 0L, SEEK_END);
+	for(i = 0; i < 36; i++){
+		if(i == 35){
+			for(j = 0; j < g_packets_lastsize; j++){
+				c = g_packets[i][j];
+				fputc(c, fp);
+			}
+		}
+		else{
+			for(j = 0; j < PACKSIZE; j++){
+				c = g_packets[i][j];
+				fputc(c, fp);
+			}
+		}
 	}
 	
 	fclose (fp);
+}
+
+void getContent(int idx, char *content, int content_len){
+	int i;
+	for(i = 0; i < content_len; i++){
+		g_packets[idx][i] = content[i];
+	}
 }
 
 void reliablyReceive(unsigned short int myUDPport, char* destinationFile){
@@ -82,7 +100,8 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile){
 	char file[MAXBUFF];
 	socklen_t addr_len;
 	char s[INET6_ADDRSTRLEN];
-	char *port;
+	char port[5];
+	int i;
 
 	memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_UNSPEC; // set to AF_INET to force IPv4
@@ -116,17 +135,25 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile){
 		fprintf(stderr, "receiver: failed to bind socket\n");
 		return 2;
 	}
-printf("YE\n");
+
 	freeaddrinfo(servinfo);
 
 	addr_len = sizeof their_addr;
-	if ((numbytes = recvfrom(sockfd, file, MAXBUFF-1 , 0, (struct sockaddr *)&their_addr, &addr_len)) == -1) {
-		perror("recvfrom");
-		exit(1);
+	
+	
+	for(i = 0; i < 36; i++){
+		if ((numbytes = recvfrom(sockfd, file, MAXBUFF-1 , 0, (struct sockaddr *)&their_addr, &addr_len)) == -1) {
+			perror("recvfrom");
+			exit(1);
+		}
+		getContent(i, file, numbytes);
+		if(i == 35){
+			g_packets_lastsize = numbytes;
+		}
 	}
-printf("%d\n", numbytes);
-	file[numbytes] = '\0';
-	writeFile(destinationFile, file, numbytes);
+
+	writeFile(destinationFile);	
+
 
 	close(sockfd);
 	return 0;

@@ -11,7 +11,7 @@
 #include <netdb.h>
 #include <fcntl.h>
 
-#define MAXBUFF 5000
+#define MAXBUFF 50000
 #define PACKSIZE 1400
 
 typedef struct packet_struct{
@@ -23,6 +23,16 @@ typedef struct ack_struct{
     int seqnum;
 } ack;
 
+int     g_packets_num = 0;
+int     g_packets_lastsize = 0;
+int     g_winsize = PACKSIZE;
+int     g_ssthresh = 65536;
+int     g_seqnum = 0;
+int     g_seqnum_request = 0;
+int     g_sockfd;
+int     g_packet_recv[MAXBUFF];
+int     g_dup = 0;
+int     g_dup_counter = 0;
 char    g_packets[MAXBUFF][PACKSIZE];
 char*   g_file_buffer;
 
@@ -69,25 +79,48 @@ void readFile(char* filename, unsigned long long int bytesToTransfer) {
     fclose (fp);
 }
 
-void splitFile(unsigned long long int bytesToTransfer) {
-    int i = 0;
+void binaryCopy(char *dest, char *source, int st, int len){
+    int i, j;
+    j = st; // if st==0 then copy from the beginning
+    for(i = 0; i < len; i++){
+        dest[i] = source[j];
+        j++;
+    }
+}
 
+int splitFile(unsigned long long int bytesToTransfer) {
+    int i = 0;
+    //比最大限制大的传输量
+    // printf("YE\n");
     for(i = 0; bytesToTransfer > PACKSIZE; i++){
-        strcpy(g_packets[i], g_file_buffer);
+        binaryCopy(g_packets[i], g_file_buffer, i * PACKSIZE, PACKSIZE);
         bytesToTransfer -= PACKSIZE;
     }
+    //比最大量小或最后一个剩余量
+    if(bytesToTransfer > 0){
+        g_packets_lastsize = bytesToTransfer;
+        binaryCopy(g_packets[i], g_file_buffer, i * PACKSIZE, bytesToTransfer);
+        i++;
+    }
+    free(g_file_buffer);
+    return i;
+}
 
-    strcpy(g_packets[i], g_file_buffer);
-    g_packets[i][bytesToTransfer] = EOF;
+void sendPacket(char * packet, int sockfd, int bytesToTransfer, struct addrinfo *p){
+    int numbytes;
+    if ((numbytes = sendto(sockfd, packet, bytesToTransfer, 0,
+             p->ai_addr, p->ai_addrlen)) == -1) {
+        perror("sender: sendto");
+        exit(1);
+    }
 }
 
 void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* filename, unsigned long long int bytesToTransfer) {
     int sockfd;
     struct addrinfo hints, *servinfo, *p;
     int rv;
-    int numbytes;
-    char* port;
-
+    
+    char port[5];
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_DGRAM;
@@ -114,12 +147,15 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
     }
 
     readFile(filename, bytesToTransfer);
-    splitFile(bytesToTransfer);
-
-    if ((numbytes = sendto(sockfd, g_file_buffer, bytesToTransfer, 0,
-             p->ai_addr, p->ai_addrlen)) == -1) {
-        perror("sender: sendto");
-        exit(1);
+    g_packets_num = splitFile(bytesToTransfer);
+    int i;
+    for(i = 0; i < g_packets_num; i++){
+        if(i < g_packets_num - 1){
+            sendPacket(g_packets[i], sockfd, PACKSIZE, p);
+        }
+        else{
+            sendPacket(g_packets[i], sockfd, g_packets_lastsize, p);
+        }
     }
 
     freeaddrinfo(servinfo);
