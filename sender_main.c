@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <pthread.h>
+#include <netdb.h>
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
@@ -8,8 +10,8 @@
 #include <sys/stat.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <netdb.h>
 #include <fcntl.h>
+#include <time.h> 
 
 #define MAXBUFF 50000
 #define PACKSIZE 1400
@@ -25,16 +27,18 @@ typedef struct ack_struct{
 
 int     g_packets_num = 0;
 int     g_packets_lastsize = 0;
-int     g_winsize = PACKSIZE;
-int     g_ssthresh = 65536;
 int     g_seqnum = 0;
 int     g_seqnum_request = 0;
 int     g_sockfd;
 int     g_packet_recv[MAXBUFF];
-int     g_dup = 0;
-int     g_dup_counter = 0;
-char    g_packets[MAXBUFF][PACKSIZE];
+char    g_file_trunk[MAXBUFF][PACKSIZE];
 char*   g_file_buffer;
+
+int     g_base = 1;
+int     g_head = 1;
+int     g_window = PACKSIZE;
+time_t  g_time;
+double  g_longest_time = 0;
 
 void    reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* filename, unsigned long long int bytesToTransfer);
 void    readFile(char* filename, unsigned long long int bytesToTransfer);
@@ -57,7 +61,26 @@ int main(int argc, char** argv)
     reliablyTransfer(argv[1], udpPort, argv[3], numBytes);
 } 
 
-void readFile(char* filename, unsigned long long int bytesToTransfer) {
+void* acceptAck(void * null){
+    struct sockaddr_storage their_addr;
+    socklen_t addr_len;
+    while(1){
+        ack recv_ack;
+        recvfrom(g_sockfd, &recv_ack, sizeof(recv_ack), 0, (struct sockaddr *)&their_addr, &addr_len);
+        if(recv_ack.seqnum > g_seqnum){
+            g_packet_recv[g_seqnum] = 1;
+            if(recv_ack.seqnum > g_seqnum_request)
+                g_seqnum_request = recv_ack.seqnum;
+        }
+        else if(recv_ack.seqnum == g_seqnum){
+            g_dup = 1;
+            g_dup_counter++;
+        }
+    }
+    return NULL;
+}
+
+void readFile(char* filename, unsigned long long int bytesToTransfer){
     // printf("YE\n");
     FILE *fp;
     fp = fopen(filename,"rb");
@@ -93,30 +116,40 @@ int splitFile(unsigned long long int bytesToTransfer) {
     //比最大限制大的传输量
     // printf("YE\n");
     for(i = 0; bytesToTransfer > PACKSIZE; i++){
-        binaryCopy(g_packets[i], g_file_buffer, i * PACKSIZE, PACKSIZE);
+        binaryCopy(g_file_trunk[i], g_file_buffer, i * PACKSIZE, PACKSIZE);
         bytesToTransfer -= PACKSIZE;
     }
     //比最大量小或最后一个剩余量
     if(bytesToTransfer > 0){
         g_packets_lastsize = bytesToTransfer;
-        binaryCopy(g_packets[i], g_file_buffer, i * PACKSIZE, bytesToTransfer);
+        binaryCopy(g_file_trunk[i], g_file_buffer, i * PACKSIZE, bytesToTransfer);
         i++;
     }
     free(g_file_buffer);
     return i;
 }
 
-void sendPacket(char * packet, int sockfd, int bytesToTransfer, struct addrinfo *p){
+void sendPacket(packet pkt, int g_sockfd, int bytesToTransfer, struct addrinfo *p){
     int numbytes;
-    if ((numbytes = sendto(sockfd, packet, bytesToTransfer, 0,
+    if ((numbytes = sendto(g_sockfd, &pkt, bytesToTransfer, 0,
              p->ai_addr, p->ai_addrlen)) == -1) {
         perror("sender: sendto");
         exit(1);
     }
 }
 
+int checkTimeout() {
+    time_t curr_time = time(NULL);
+    double diff = difftime(curr_time, g_time);  
+    
+    if(diff > g_longest_time){
+        g_time = time(NULL);
+        return 1;   
+    }   
+    return 0;
+}
+
 void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* filename, unsigned long long int bytesToTransfer) {
-    int sockfd;
     struct addrinfo hints, *servinfo, *p;
     int rv;
     
@@ -133,7 +166,7 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
 
     // loop through all the results and make a socket
     for(p = servinfo; p != NULL; p = p->ai_next) {
-        if ((sockfd = socket(p->ai_family, p->ai_socktype,
+        if ((g_sockfd = socket(p->ai_family, p->ai_socktype,
                 p->ai_protocol)) == -1) {
             perror("sender: socket");
             continue;
@@ -148,19 +181,63 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
 
     readFile(filename, bytesToTransfer);
     g_packets_num = splitFile(bytesToTransfer);
-    int i;
-    for(i = 0; i < g_packets_num; i++){
-        if(i < g_packets_num - 1){
-            sendPacket(g_packets[i], sockfd, PACKSIZE, p);
-        }
-        else{
-            sendPacket(g_packets[i], sockfd, g_packets_lastsize, p);
-        }
+
+    pthread_t tid;
+    pthread_create(&tid, NULL, &acceptAck, NULL);
+
+    packet pkt;
+
+    pkt.seqnum = g_seqnum;
+    if(g_packets_num == 1){
+        binaryCopy(pkt.msg, g_file_trunk[0], 0, g_packets_lastsize);
     }
+    else{
+        binaryCopy(pkt.msg, g_file_trunk[0], 0, PACKSIZE);
+    }
+    
+    sendPacket(pkt, g_sockfd, sizeof(pkt), p);
+
+    
+    int rwnd = 2500;
+    int cwnd = 100;
+    int ssthresh = 1000;
+    int dupACKcount = 0;
+    
+    int state = 0;
+
+    while(1){
+        switch(state){
+            time_t start = clock();
+            case 0: //slow start
+                if(g_dup == 0){
+                    break;
+                }
+
+                break;
+            case 1: //congestion avoidance
+
+                break;
+            case 2: //fast recovery
+
+                break;
+        }
+
+
+    }
+
+    // int i;
+    // for(i = 0; i < g_packets_num; i++){
+    //     if(i < g_packets_num - 1){
+    //         sendPacket(g_file_trunk[i], g_sockfd, PACKSIZE, p);
+    //     }
+    //     else{
+    //         sendPacket(g_file_trunk[i], g_sockfd, g_packets_lastsize, p);
+    //     }
+    // }
 
     freeaddrinfo(servinfo);
     
-    close(sockfd);
+    close(g_sockfd);
 
     return 0;
 }
