@@ -80,7 +80,6 @@ void writeFile(char* filename){
 			}
 		}
 	}
-	
 	fclose (fp);
 }
 
