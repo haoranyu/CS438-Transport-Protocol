@@ -15,7 +15,7 @@
 
 #define PACKSIZE 1400
 
-char*                   g_file_buffer;
+char                    g_file_buffer[PACKSIZE];
 FILE*                   g_file_ptr;
 unsigned long long int  g_byte_left;
 unsigned long int       g_seqnum;
@@ -27,12 +27,36 @@ struct addrinfo         g_hints,
 int                     g_rv;
 char                    g_port[5];
 
+int                     g_last_ack = -1;
+
+int                     g_sshthresh = 65536;
+int                     g_dupACKcount = 0;
+int                     g_cwnd = PACKSIZE;
+
 typedef struct packet_struct{
     char msg[PACKSIZE]; // it could be better to dynamicly 
     int seqnum;
     int size;
     int finish;
 } packet;
+
+typedef struct ack_struct{
+    int seqnum;
+} ack;
+
+void recvAck(){
+    struct sockaddr_storage their_addr;
+    socklen_t addr_len;
+//    while(1){
+        ack recv_ack;
+        memset(&recv_ack, 0, sizeof(recv_ack));
+        recvfrom(g_sockfd, &recv_ack, sizeof(recv_ack), 0, (struct sockaddr *)&their_addr, &addr_len);
+        printf("%d\n", recv_ack.seqnum);
+//    }
+    return NULL;
+}
+
+////////////////////
 
 void initSocket(char* hostname, unsigned short int hostUDPport){
     memset(&g_hints, 0, sizeof(g_hints));
@@ -56,6 +80,8 @@ void initSocket(char* hostname, unsigned short int hostUDPport){
         fprintf(stderr, "sender: failed to bind socket\n");
         return 2;
     }
+
+
     freeaddrinfo(g_servinfo);
 }
 
@@ -86,23 +112,19 @@ void binaryCopy(char *dest, char *source, int st, int len){
 // 动态的读取文件
 
 void openFile(char* filename){
-    g_file_ptr = fopen(filename,"rb");
-    g_file_buffer = (char *)malloc(1);
+    g_file_ptr = fopen(filename, "rb");
     fseek(g_file_ptr, 0L, SEEK_SET);
 }
 void readFile(unsigned long long int bytesToBuffer){
     int i;
     char c;
-    free(g_file_buffer);
-    memset(&g_file_buffer, 0, sizeof(g_file_buffer));
-    g_file_buffer = (char *)malloc(bytesToBuffer+1);
-    for(i = 0; i < bytesToBuffer; i++){   
+
+    for(i = 0; i < bytesToBuffer; i++){
         c = fgetc(g_file_ptr);
         g_file_buffer[i] = c;
     }
 }
 void closeFile(){
-    free(g_file_buffer);
     fclose(g_file_ptr);
 }
 
@@ -128,8 +150,12 @@ int main(int argc, char** argv)
 void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* filename, unsigned long long int bytesToTransfer) {
     g_byte_left = bytesToTransfer;
     openFile(filename);
+    initSocket(hostname, hostUDPport);
+    // pthread_t tid;
+    // pthread_create(&tid, NULL, &recvAck, NULL);
     
     for(g_seqnum = 0; g_byte_left > 0; g_seqnum++){
+
         int packet_size = PACKSIZE;
         packet pkt;
         memset(&pkt, 0, sizeof(pkt));
@@ -141,16 +167,17 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
         }
 
         readFile(packet_size);
+        
         binaryCopy(pkt.msg, g_file_buffer, 0, packet_size);
         pkt.seqnum = g_seqnum;
         pkt.size = packet_size;
-        // send packet
-        initSocket(hostname, hostUDPport);
+
         sendPacket(pkt);
-        endSocket();
+        recvAck();
+        
         g_byte_left -= packet_size;
     }
-   
+    endSocket();   
     closeFile();
 
     //writeFile("output", 1000);

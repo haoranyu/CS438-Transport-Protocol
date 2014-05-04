@@ -35,6 +35,9 @@ typedef struct packet_struct{
     int finish;
 } packet;
 
+typedef struct ack_struct{
+    int seqnum;
+} ack;
 
 void initSocket(unsigned short int myUDPport){
     memset(&g_hints, 0, sizeof(g_hints));
@@ -84,6 +87,19 @@ packet recvPacket(){
 		exit(1);
 	}
 	return pkt;
+}
+///////////////////////
+
+void sendAck(int num) {
+    int numbytes;
+	ack send_ack;
+	send_ack.seqnum = num;
+	printf("%d\n", num);
+	if ((numbytes = sendto(g_sockfd, &send_ack, sizeof(send_ack), 0,
+			 (struct sockaddr *)&g_their_addr, g_addr_len)) == -1) {
+		perror("talker: sendto");
+		exit(1);
+	}
 }
 
 ///////////////////////
@@ -142,17 +158,19 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile){
 	while(1){
 		packet pkt;
 		pkt = recvPacket();
+		printf("recv Packet\n");
 		g_file_buffer = (char *)malloc(pkt.size+1);
-
 		binaryCopy(g_file_buffer, pkt.msg, 0, pkt.size);
-		//printf("%s\n", pkt.msg);
 		writeFile(pkt.size);
+		printf("write File\n");
+		sendAck(pkt.seqnum);
+		printf("send ack\n");
 		free(g_file_buffer);
 		if(pkt.finish == 1){
 			break;
 		}
 	}
 	//writeFile(unsigned long long int bytesFromBuffer);
-
+	endSocket();
 	fclose(g_file_ptr);
 }
