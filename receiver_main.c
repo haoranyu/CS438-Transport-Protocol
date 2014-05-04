@@ -15,19 +15,6 @@
 
 #define PACKSIZE 1400
 
-char*   g_file_buffer;
-FILE*   g_file_ptr;
-
-int                     g_sockfd;
-struct addrinfo         g_hints, 
-                        *g_servinfo, 
-                        *g_p;
-int                     g_rv;
-struct sockaddr_storage g_their_addr;
-socklen_t 				g_addr_len;
-char                    g_port[5];
-
-
 typedef struct packet_struct{
     char msg[PACKSIZE];
     int seqnum;
@@ -38,6 +25,23 @@ typedef struct packet_struct{
 typedef struct ack_struct{
     int seqnum;
 } ack;
+
+char*   				g_file_buffer;
+FILE*   				g_file_ptr;
+
+int                     g_sockfd;
+struct addrinfo         g_hints, 
+                        *g_servinfo, 
+                        *g_p;
+int                     g_rv;
+struct sockaddr_storage g_their_addr;
+socklen_t 				g_addr_len;
+char                    g_port[5];
+
+int                     g_ack_last = -1;
+int                     g_ack_expect = 0;
+
+
 
 void initSocket(unsigned short int myUDPport){
     memset(&g_hints, 0, sizeof(g_hints));
@@ -158,14 +162,21 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile){
 	while(1){
 		packet pkt;
 		pkt = recvPacket();
-		printf("recv Packet\n");
-		g_file_buffer = (char *)malloc(pkt.size+1);
-		binaryCopy(g_file_buffer, pkt.msg, 0, pkt.size);
-		writeFile(pkt.size);
-		printf("write File\n");
-		sendAck(pkt.seqnum);
-		printf("send ack\n");
-		free(g_file_buffer);
+
+		if(pkt.seqnum == g_ack_expect){
+			g_file_buffer = (char *)malloc(pkt.size+1);
+			binaryCopy(g_file_buffer, pkt.msg, 0, pkt.size);
+			writeFile(pkt.size);
+			sendAck(pkt.seqnum);
+			free(g_file_buffer);
+			g_last_ack = pkt.seqnum;
+			g_ack_expect = g_last_ack+1;
+		}
+		else{
+			// drop it.
+			sendAck(g_last_ack);
+		}
+		
 		if(pkt.finish == 1){
 			break;
 		}

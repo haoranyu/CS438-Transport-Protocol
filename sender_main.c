@@ -15,6 +15,17 @@
 
 #define PACKSIZE 1400
 
+typedef struct packet_struct{
+    char msg[PACKSIZE]; // it could be better to dynamicly 
+    int seqnum;
+    int size;
+    int finish;
+} packet;
+
+typedef struct ack_struct{
+    int seqnum;
+} ack;
+
 char                    g_file_buffer[PACKSIZE];
 FILE*                   g_file_ptr;
 unsigned long long int  g_byte_left;
@@ -27,32 +38,43 @@ struct addrinfo         g_hints,
 int                     g_rv;
 char                    g_port[5];
 
-int                     g_last_ack = -1;
-
 int                     g_sshthresh = 65536;
+int                     g_dup = 0; // bool
+int                     g_ack = 0; // bool
 int                     g_dupACKcount = 0;
 int                     g_cwnd = PACKSIZE;
+int                     g_mss = PACKSIZE;
 
-typedef struct packet_struct{
-    char msg[PACKSIZE]; // it could be better to dynamicly 
-    int seqnum;
-    int size;
-    int finish;
-} packet;
+int                     g_last_ack = -1;
+int                     g_packets[PACKSIZE];
+int                     g_wnd[PACKSIZE];// the send queue size might be determined dynamicly by totalsize/packetsize
+int                     g_wnd_start = 0;
+int                     g_wnd_end = 0;
 
-typedef struct ack_struct{
-    int seqnum;
-} ack;
+
 
 void recvAck(){
     struct sockaddr_storage their_addr;
     socklen_t addr_len;
-//    while(1){
+    while(1){
         ack recv_ack;
         memset(&recv_ack, 0, sizeof(recv_ack));
         recvfrom(g_sockfd, &recv_ack, sizeof(recv_ack), 0, (struct sockaddr *)&their_addr, &addr_len);
-        printf("%d\n", recv_ack.seqnum);
-//    }
+
+        if(g_wnd[recv_ack.seqnum] == 0 && recv_ack.seqnum > g_last_ack){
+            g_dup = 0;
+            g_ack = 1;
+            g_wnd[recv_ack.seqnum] = 1;
+            g_wnd_start += (recv_ack.seqnum - g_last_ack);
+            g_wnd_end += (recv_ack.seqnum - g_last_ack);
+            g_last_ack > recv_ack.seqnum;
+        }
+        else if(recv_ack.seqnum == g_last_ack){
+            g_ack = 1;
+            g_dup = 1;
+        }
+        //printf("%d\n", recv_ack.seqnum);
+    }
     return NULL;
 }
 
@@ -151,32 +173,108 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
     g_byte_left = bytesToTransfer;
     openFile(filename);
     initSocket(hostname, hostUDPport);
-    // pthread_t tid;
-    // pthread_create(&tid, NULL, &recvAck, NULL);
+
+    memset(&g_wnd, 0, sizeof(g_wnd));
+
+    pthread_t tid;
+    pthread_create(&tid, NULL, &recvAck, NULL);
     
-    for(g_seqnum = 0; g_byte_left > 0; g_seqnum++){
-
-        int packet_size = PACKSIZE;
-        packet pkt;
-        memset(&pkt, 0, sizeof(pkt));
-        pkt.finish = 0;
-
-        if(g_byte_left < PACKSIZE){
-            packet_size = g_byte_left;
-            pkt.finish = 1;
+    int state = 0;
+    while(1){
+        switch(state){
+            time_t start = clock();
+            case 0: //slow start
+                if(g_ack){
+                    g_cwnd += g_mss;
+                    g_dupACKcount = 0;
+                    // send new
+                }
+                else if(g_dup){// dupcount++
+                    g_dupACKcount++;
+                }
+                else if((clock() - start) > 1){
+                    g_sshthresh = g_cwnd / 2;
+                    g_cwnd = g_mss;
+                    g_dupACKcount = 0;
+                    state = 0;
+                }
+                else if(g_cwnd > g_sshthresh){
+                    state = 1;
+                }
+                else if(g_dupACKcount >= 3){
+                    g_sshthresh = g_cwnd / 2;
+                    g_cwnd = g_sshthresh + 3 * g_mss;
+                    state = 2;
+                }
+                break;
+            case 1: //congestion avoidance
+                if(g_ack){
+                    g_cwnd = g_cwnd + g_mss*g_mss/g_cwnd;
+                    g_dupACKcount = 0;
+                    state = 1;
+                    // send new
+                }
+                else if(g_dup){// dupcount++
+                    g_dupACKcount++;
+                }
+                else if(g_dupACKcount >= 3){
+                    g_sshthresh = g_cwnd / 2;
+                    g_cwnd = g_sshthresh + 3 * g_mss;
+                    state = 2;
+                }
+                else if((clock() - start) > 1){
+                    g_sshthresh = g_cwnd / 2;
+                    g_cwnd = g_mss;
+                    g_dupACKcount = 0;
+                    state = 0;
+                }
+                break;
+            case 2: //fast recovery
+                if(g_ack){
+                    g_cwnd = g_cwnd + g_mss*g_mss/g_cwnd;
+                    g_dupACKcount = 0;
+                    state = 1;
+                    // send new
+                }
+                else if(g_dup){// dupcount++
+                    g_cwnd = g_cwnd + g_mss;
+                    // send new
+                }
+                else if((clock() - start) > 1){
+                    g_sshthresh = g_cwnd / 2;
+                    g_cwnd = g_mss;
+                    g_dupACKcount = 0;
+                    state = 0;
+                }
+                break;
         }
-
-        readFile(packet_size);
-        
-        binaryCopy(pkt.msg, g_file_buffer, 0, packet_size);
-        pkt.seqnum = g_seqnum;
-        pkt.size = packet_size;
-
-        sendPacket(pkt);
-        recvAck();
-        
-        g_byte_left -= packet_size;
     }
+
+    // for(g_seqnum = 0; g_byte_left > 0; g_seqnum++){
+
+    //     int packet_size = PACKSIZE;
+    //     packet pkt;
+    //     memset(&pkt, 0, sizeof(pkt));
+    //     pkt.finish = 0;
+
+    //     if(g_byte_left < PACKSIZE){
+    //         packet_size = g_byte_left;
+    //         pkt.finish = 1;
+    //     }
+
+    //     readFile(packet_size);
+        
+    //     binaryCopy(pkt.msg, g_file_buffer, 0, packet_size);
+    //     pkt.seqnum = g_seqnum;
+    //     pkt.size = packet_size;
+
+    //     sendPacket(pkt);
+    //     recvAck();
+        
+    //     g_byte_left -= packet_size;
+    // }
+
+
     endSocket();   
     closeFile();
 
