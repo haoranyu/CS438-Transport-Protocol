@@ -1,0 +1,7 @@
+compilation of version 8 failed with:
+gcc -w -lrt sender_main.c -o reliable_sender -lpthread -lm
+/tmp/ccT9Kqym.o: In function `setTimer':
+sender_main.c:(.text+0x636): undefined reference to `clock_gettime'
+collect2: ld returned 1 exit status
+make: *** [reliable_sender] Error 1
+ 

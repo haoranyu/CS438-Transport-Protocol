@@ -1,0 +1,280 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <netdb.h>
+#include <unistd.h>
+#include <errno.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <time.h> 
+#include <stdint.h>
+
+#define BUFFMAX 1400000 
+#define TIMEOUT 1
+
+#define SLOWSTART 0
+#define CONGAVOI  1
+#define FASERECOV 2
+
+#define PACKSIZE 5600  
+#define MAXWND 150 
+
+#define HDR_PTR 3*sizeof(int)
+
+typedef struct packet_struct {
+	int size;
+	struct timespec timer;
+	int count;
+	union {
+		uint8_t msg[PACKSIZE];
+		struct packet_header_struct {
+			int ack;
+			int finish;
+			int seqnum;
+		} hdr;
+	};
+} packet;
+
+typedef struct ack_struct {
+	int seqnum;
+} ack;
+
+uint8_t 				g_file_buffer[BUFFMAX];
+FILE*   				g_file_ptr;
+
+int 					g_sockfd;
+struct sockaddr_in 		g_hints;
+socklen_t 				g_addr_len = sizeof(struct sockaddr_in);
+
+packet 					g_packets[MAXWND];
+int                     g_wnd[MAXWND];// the send queue size might be determined dynamicly by totalsize/packetsize
+int                     g_ack_last = 0;
+int                     g_ack_expect = 0;
+int 					g_conn_state = 0;
+
+int 					g_lost = 0;
+struct timeval 			g_timeout[1];
+
+
+void initSocket(unsigned short int myUDPport){
+	struct sockaddr_in params;
+	memset(&params, 0, sizeof(params));
+ 	//memset(&client, 0, sizeof(client));
+
+	params.sin_family = AF_INET;
+	params.sin_port = htons(myUDPport);
+	params.sin_addr.s_addr = htons(INADDR_ANY);
+
+	if((g_sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0){
+        printf("error: socket request failed! \n");
+        //exit(1);
+    }
+
+	if(bind(g_sockfd, (struct sockaddr *)&params, sizeof(struct sockaddr_in)) < 0){
+		printf("Unable to bind\n");
+	}
+
+	g_ack_expect = 0;
+	g_conn_state = 0;
+}
+
+void endSocket(){
+	packet pkt;
+	while(g_conn_state != 2){
+		memset(&(pkt.hdr), 0, sizeof(pkt.hdr));
+		pkt.hdr.finish = 1;
+		pkt.hdr.seqnum = g_ack_last;
+		g_ack_last++;
+		g_conn_state = 3;
+
+		sendPacket(&(pkt.hdr), sizeof pkt.hdr);
+
+		ack last_ack;
+		recvFrom(&last_ack, sizeof last_ack);
+		if(pkt.hdr.ack != 1 || g_lost > last_ack.seqnum || last_ack.seqnum > g_ack_last){
+			g_conn_state = 2;
+		}
+	}
+
+	close(g_sockfd);
+}
+
+packet recvPacket(){
+	int numbytes;
+	packet pkt;
+	numbytes = recvFrom(pkt.msg, PACKSIZE);
+	pkt.size = numbytes;
+	return pkt;
+}
+///////////////////////
+
+void sendAck(int num){
+	int numbytes;
+	ack send_ack;
+	memset(&send_ack, 0, sizeof(ack));
+	g_ack_last++;
+	send_ack.seqnum = num;
+	numbytes = sendPacket(&send_ack, sizeof(send_ack));
+}
+
+////////////
+void reliablyReceive(unsigned short int myUDPport, char* destinationFile);
+
+
+// read file
+void openFile(char* filename){
+    g_file_ptr = fopen(filename,"wb");
+    //g_file_buffer = (char *)malloc(1);
+    fseek(g_file_ptr, 0L, SEEK_SET);
+}
+void writeFile(unsigned long long int bytesFromBuffer){
+    int i;
+    char c;
+    fseek(g_file_ptr, 0L, SEEK_END);
+    for(i = 0; i < bytesFromBuffer; i++){
+        c = g_file_buffer[i];
+        fputc(c, g_file_ptr);
+    }
+}
+void closeFile(){
+    //free(g_file_buffer);
+    fclose(g_file_ptr);
+}
+////////////
+
+struct timeval* setTimeout(int limit){
+	g_timeout->tv_sec = limit / 1000;
+	g_timeout->tv_usec = (limit % 1000) * 1000;
+	return &g_timeout;
+}
+
+int recvFrom(void *buff, int len){
+	int numbytes;
+	struct sockaddr_in recvaddr[1];
+	fd_set fdset[1];
+
+	while(1){
+		FD_ZERO(fdset);
+		FD_SET(g_sockfd, fdset);
+
+		select(FD_SETSIZE, fdset, NULL, NULL, setTimeout(TIMEOUT)); 
+		if(!FD_ISSET(g_sockfd, fdset))
+			return 0;
+
+		numbytes = recvfrom(g_sockfd, buff, len, 0, (struct sockaddr *)recvaddr, &g_addr_len);	
+
+		if(g_conn_state == 0){
+			memcpy(&g_hints, recvaddr, g_addr_len);
+			
+			g_conn_state = 1;
+			break;
+		}
+		else{
+			if(recvaddr->sin_addr.s_addr == g_hints.sin_addr.s_addr)
+				break;
+		}
+	}
+
+	return numbytes;
+}
+
+int sendPacket(void *msg, int msg_len){
+	int numbytes;
+	if((numbytes = sendto(g_sockfd, msg, msg_len, 0,
+		(struct sockaddr *)&g_hints, sizeof(struct sockaddr_in))) == -1){
+    //   perror("sender: sendto");
+    //    exit(1);
+    }
+	return numbytes;
+}
+
+packet* getPacket(int seqnum){
+	return &g_packets[seqnum % MAXWND];
+}
+
+int numPacket(int seqnum){
+	return seqnum % MAXWND;
+}
+
+int getMsgSize(int origin){
+	return origin - HDR_PTR;
+}
+
+int main(int argc, char** argv)
+{
+	unsigned short int udpPort;
+	
+	if(argc != 3)
+	{
+		fprintf(stderr, "usage: %s UDP_port filename_to_write\n\n", argv[0]);
+		exit(1);
+	}
+	
+	udpPort = (unsigned short int)atoi(argv[1]);
+	
+	reliablyReceive(udpPort, argv[2]);
+}
+void reliablyReceive(unsigned short int myUDPport, char* destinationFile){
+	openFile(destinationFile);
+	initSocket(myUDPport);
+	// int k = 0;//manually drop k
+	while(g_conn_state != 2){
+		
+		int total_size = 0;
+		uint8_t *fp = g_file_buffer;
+
+		while(1){
+			packet pkt;
+			pkt = recvPacket();
+			int msg_size = getMsgSize(pkt.size);
+			if(pkt.size != 0){
+				if(pkt.hdr.seqnum > g_ack_expect){
+					// store and reordering
+					memcpy(getPacket(pkt.hdr.seqnum), &pkt, sizeof(packet));
+					g_wnd[numPacket(pkt.hdr.seqnum)] = 1;
+				}
+				else if(pkt.hdr.seqnum == g_ack_expect){
+					if(pkt.hdr.finish == 1){
+						g_conn_state = 2;
+					}
+					else if((total_size + msg_size) <= BUFFMAX){
+						memcpy(fp, &pkt.hdr + 1, msg_size);
+						fp += msg_size;
+						total_size += msg_size;
+					}
+
+					g_ack_expect++;
+					while(g_wnd[numPacket(g_ack_expect)] != 0){
+						g_wnd[numPacket(g_ack_expect)] = 0;
+						packet *ppkt = getPacket(g_ack_expect);
+
+						if(ppkt->hdr.finish == 1){
+							g_conn_state = 2;
+						}
+						else{
+							memcpy(fp, &ppkt->hdr + 1, getMsgSize(ppkt->size));
+							fp += getMsgSize(ppkt->size);
+							total_size += getMsgSize(ppkt->size);
+						}
+						g_ack_expect++;
+					}
+				}
+			}
+			// drop it.
+			sendAck(g_ack_expect);
+			if(g_conn_state == 2 || ((total_size + getMsgSize(pkt.size)) >= BUFFMAX && pkt.size != 0))
+				break;
+		}
+		
+		if(total_size <= 0) break;
+		writeFile(total_size);
+	}
+
+	endSocket();
+	closeFile();
+}

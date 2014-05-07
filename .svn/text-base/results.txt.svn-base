@@ -1,0 +1,20 @@
+test results:
+
+transfer single byte succeeded!
+transfer 50K succeeded!
+utilize empty link failed: your receiver didn't terminate within 10s. your receiver wrote 1396736 of 777000000 bytes to disk.
+
+drop rate=0.051 succeeded!
+drop rate=0.25 failed: only received 0 of 10000 after 10s.
+
+quick convergence failed: failed to send 200MB in 20s (receiver wrote 1396736 bytes)
+
+TCP friendliness succeeded! (TCP got 874 Mbps)
+TCP friendliness with 0.78% loss succeeded! (TCP got 104 Mbps)
+competition vs TCP failed: your receiver wrote 0 of 777MB to disk in 30 seconds.
+
+====================
+
+version:19
+score: 60/100
+all-time best score (your current grade): 70/100
