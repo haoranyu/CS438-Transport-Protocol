@@ -14,7 +14,7 @@
 #include <time.h> 
 #include <stdint.h>
 
-#define BUFFMAX 14000000
+#define BUFFMAX 140000000
 #define TIMEOUT 1
 
 #define SLOWSTART 0
@@ -98,7 +98,7 @@ void initSocket(char* hostname, unsigned short int hostUDPport){
         return 2;
     }
 
-    freeaddrinfo(g_servinfo);
+    //
 }
 
 void endSocket(){
@@ -118,7 +118,7 @@ void endSocket(){
             g_conn_state = 2;
         }
     }
-
+    freeaddrinfo(g_servinfo);
     close(g_sockfd);
 }
 
@@ -252,11 +252,11 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
         int trunk_size = BUFFMAX;
         trunk_size = BUFFMAX;
         if(g_byte_left < BUFFMAX){
-            trunk_size = bytesToTransfer;
+            trunk_size = g_byte_left;
         }
-            
+        printf("%d\n", trunk_size);
         readFile(trunk_size);
-        // printf("%d\n", g_byte_left);
+        
 
         uint8_t *fp = g_file_buffer;
         
