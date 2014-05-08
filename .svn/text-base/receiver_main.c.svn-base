@@ -14,14 +14,14 @@
 #include <time.h> 
 #include <stdint.h>
 
-#define BUFFMAX 1400000 
+#define BUFFMAX 140000000
 #define TIMEOUT 1
 
 #define SLOWSTART 0
 #define CONGAVOI  1
 #define FASERECOV 2
 
-#define PACKSIZE 5600  
+#define PACKSIZE 56000
 #define MAXWND 150 
 
 #define HDR_PTR 3*sizeof(int)

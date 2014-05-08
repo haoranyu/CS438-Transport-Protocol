@@ -14,14 +14,14 @@
 #include <time.h> 
 #include <stdint.h>
 
-#define BUFFMAX 1400000 
+#define BUFFMAX 140000000
 #define TIMEOUT 1
 
 #define SLOWSTART 0
 #define CONGAVOI  1
 #define FASERECOV 2
 
-#define PACKSIZE 5600  
+#define PACKSIZE 56000  
 #define MAXWND 150 
 
 #define HDR_PTR 3*sizeof(int)
@@ -292,7 +292,7 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
             setTimer();
             pkt = getPacket(g_lost);
             if(pkt->timer.tv_sec != 0 && checkTimer(&(pkt->timer))){
-                g_sshthresh = g_cwnd / 2;
+                g_sshthresh = 3 * g_cwnd / 4;
                 g_cwnd = 1;
 
                 state = SLOWSTART;
@@ -349,7 +349,7 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
                             pkt->timer.tv_sec = 0;
                             pkt->timer.tv_nsec = 0;
 
-                            g_sshthresh = 3 * g_cwnd / 2;
+                            g_sshthresh = 3 * g_cwnd / 4;
                             g_cwnd = g_sshthresh;
                     
                             state = FASERECOV;
@@ -372,7 +372,7 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
                             pkt->timer.tv_sec = 0;
                             pkt->timer.tv_nsec = 0;
 
-                            g_sshthresh = 3 * g_cwnd / 2;
+                            g_sshthresh = 3 * g_cwnd / 4;
                             g_cwnd = g_sshthresh;
                     
                             state = FASERECOV;
@@ -396,7 +396,7 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
                             pkt->timer.tv_sec = 0;
                             pkt->timer.tv_nsec = 0;
 
-                            g_sshthresh = 3 * g_cwnd / 2;
+                            g_sshthresh = 3 * g_cwnd / 4;
                             g_cwnd = g_sshthresh;
                     
                             state = FASERECOV;

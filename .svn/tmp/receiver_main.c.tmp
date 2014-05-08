@@ -14,21 +14,28 @@
 #include <time.h> 
 #include <stdint.h>
 
+<<<<<<< .mine
+#define BUFFMAX 14000000
+=======
 #define BUFFMAX 140000000
+>>>>>>> .r8391
 #define TIMEOUT 1
 
 #define SLOWSTART 0
 #define CONGAVOI  1
 #define FASERECOV 2
 
+<<<<<<< .mine
+#define PACKSIZE 1400 
+=======
 #define PACKSIZE 56000
+>>>>>>> .r8391
 #define MAXWND 150 
 
 #define HDR_PTR 3*sizeof(int)
 
 typedef struct packet_struct {
 	int size;
-	struct timespec timer;
 	int count;
 	union {
 		uint8_t msg[PACKSIZE];
@@ -126,7 +133,7 @@ void sendAck(int num){
 void reliablyReceive(unsigned short int myUDPport, char* destinationFile);
 
 
-// read file
+// 动态的写入文件
 void openFile(char* filename){
     g_file_ptr = fopen(filename,"wb");
     //g_file_buffer = (char *)malloc(1);
@@ -187,7 +194,7 @@ int sendPacket(void *msg, int msg_len){
 	int numbytes;
 	if((numbytes = sendto(g_sockfd, msg, msg_len, 0,
 		(struct sockaddr *)&g_hints, sizeof(struct sockaddr_in))) == -1){
-    //   perror("sender: sendto");
+        perror("sender: sendto");
     //    exit(1);
     }
 	return numbytes;

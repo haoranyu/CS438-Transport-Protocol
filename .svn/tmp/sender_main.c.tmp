@@ -21,14 +21,17 @@
 #define CONGAVOI  1
 #define FASERECOV 2
 
+<<<<<<< .mine
+#define PACKSIZE 1400 
+=======
 #define PACKSIZE 56000  
+>>>>>>> .r8391
 #define MAXWND 150 
 
 #define HDR_PTR 3*sizeof(int)
 
 typedef struct packet_struct {
     int size;
-    struct timespec timer;
     int count;
     union {
         uint8_t msg[PACKSIZE];
@@ -145,7 +148,7 @@ int getMsgSize(int origin){
     return origin - HDR_PTR;
 }
 
-// write to file
+// 动态的读取文件
 
 void openFile(char* filename){
     g_file_ptr = fopen(filename, "rb");
@@ -208,8 +211,8 @@ void setTimer(){
     clock_gettime(CLOCK_MONOTONIC, &g_timer);
 }
 
-int checkTimer(struct timespec *timer){
-    if(g_timer.tv_nsec - timer->tv_nsec > (TIMEOUT * 300000)){
+int checkTimer(){
+    if(g_timer.tv_nsec - g_curr.tv_nsec > (TIMEOUT * 1000000)){
         return 1;
     }
     return 0;
@@ -269,8 +272,8 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
             while(g_ack_last < (g_cwnd + g_lost) && trunk_curr < trunk_size){
                 pkt = getPacket(g_ack_last);
 
-                pkt->timer.tv_sec = 0;
-                pkt->timer.tv_nsec = 0;
+                g_curr.tv_sec = 0;
+                g_curr.tv_nsec = 0;
 
                 memset(&(pkt->hdr), 0, HDR_PTR);
 
@@ -291,7 +294,7 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
 
             setTimer();
             pkt = getPacket(g_lost);
-            if(pkt->timer.tv_sec != 0 && checkTimer(&(pkt->timer))){
+            if(g_curr.tv_sec != 0 && checkTimer()){
                 g_sshthresh = 3 * g_cwnd / 4;
                 g_cwnd = 1;
 
@@ -299,16 +302,16 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
                 int i;
                 for (i = g_lost + 1; i < g_ack_last; i++){
                     pkt = getPacket(i);
-                    pkt->timer.tv_sec = g_timer.tv_sec;
-                    pkt->timer.tv_nsec = g_timer.tv_nsec;
+                    g_curr.tv_sec = g_timer.tv_sec;
+                    g_curr.tv_nsec = g_timer.tv_nsec;
                 }
             }
 
             adjustCwnd();
 
             pkt = getPacket(g_lost);
-            if(checkTimer(&(pkt->timer))){
-                pkt->timer.tv_sec = 0;
+            if(checkTimer()){
+                g_curr.tv_sec = 0;
             }
 
             int count = 0, i;
@@ -316,10 +319,10 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
                 if(i >= g_lost + g_cwnd)
                     break;
                 pkt = getPacket(i);
-                if(checkTimer(&(pkt->timer))){
+                if(checkTimer()){
                     sendPacket(pkt->msg, pkt->size);
-                    pkt->timer.tv_sec = g_timer.tv_sec;
-                    pkt->timer.tv_nsec = g_timer.tv_nsec;
+                    g_curr.tv_sec = g_timer.tv_sec;
+                    g_curr.tv_nsec = g_timer.tv_nsec;
                     pkt->count++;
                     count++;
                 }
@@ -346,8 +349,8 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
                     case SLOWSTART: //slow start
                         if(g_dupACKcount >= 3){
                             pkt = getPacket(g_lost);
-                            pkt->timer.tv_sec = 0;
-                            pkt->timer.tv_nsec = 0;
+                            g_curr.tv_sec = 0;
+                            g_curr.tv_nsec = 0;
 
                             g_sshthresh = 3 * g_cwnd / 4;
                             g_cwnd = g_sshthresh;
@@ -369,8 +372,8 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
                     case CONGAVOI: //congestion avoidance
                         if(g_dupACKcount >= 3){
                             pkt = getPacket(g_lost);
-                            pkt->timer.tv_sec = 0;
-                            pkt->timer.tv_nsec = 0;
+                            g_curr.tv_sec = 0;
+                            g_curr.tv_nsec = 0;
 
                             g_sshthresh = 3 * g_cwnd / 4;
                             g_cwnd = g_sshthresh;
@@ -393,8 +396,8 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
                     case FASERECOV: //fast recovery
                         if(g_dupACKcount >= 3){
                             pkt = getPacket(g_lost);
-                            pkt->timer.tv_sec = 0;
-                            pkt->timer.tv_nsec = 0;
+                            g_curr.tv_sec = 0;
+                            g_curr.tv_nsec = 0;
 
                             g_sshthresh = 3 * g_cwnd / 4;
                             g_cwnd = g_sshthresh;
